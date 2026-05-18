@@ -17,20 +17,28 @@
 
 set -euo pipefail
 
-if [ $# -ne 4 ] || ([ $# -eq 1 ] && [ "$1" = "--help" ]); then
-  echo "Usage: $(basename $0) eth0-cidr ppp-serial-device ppp-serial-baud ppp-client-ip-addr"
+if ([ $# -eq 1 ] && [ "$1" = "--help" ]); then
+  echo "Usage: $(basename $0) [eth0-cidr] [ppp-serial-device] [ppp-serial-baud] [ppp-client-ip-addr]"
   exit
 fi
 
-eth0_cidr="$1"
-ppp_serial_device="$2"
-ppp_serial_baud="$3"
-ppp_client_ip_addr="$4"
+eth0_cidr="${1:-192.168.2.1/24}"
+ppp_serial_device="${2:-/dev/ttyUSB0}"
+ppp_serial_baud="${3:-19200}"
+ppp_client_ip_addr="${4:-192.168.2.3}"
+
+ppp_link_name="usb"
 
 wlan0_ip_addr="$(ip -f inet address show wlan0 | grep -o 'inet.*' | cut -d ' ' -f 2 | cut -d '/' -f 1)"
 
-ip addr add "$eth0_cidr" dev eth0 || true
-pppd "$ppp_serial_device" "$ppp_serial_baud" "$wlan0_ip_addr":"$ppp_client_ip_addr" noauth lock local crtscts persist maxfail 0 holdoff 1 proxyarp
+ip addr flush dev eth0
+ip addr add "$eth0_cidr" dev eth0
+
+while [ -n "$(pidof pppd)" ]; do
+  killall pppd || true
+  sleep 1
+done
+[ -c "$ppp_serial_device" ] && /usr/sbin/pppd "$ppp_serial_device" "$ppp_serial_baud" "$wlan0_ip_addr":"$ppp_client_ip_addr" noauth lock local crtscts persist maxfail 0 holdoff 1 proxyarp linkname "$ppp_link_name"
 
 echo 1 > /proc/sys/net/ipv4/ip_forward
 iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
